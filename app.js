@@ -46,7 +46,33 @@ function load() {
   try { return Object.assign(structuredClone(DEFAULT), JSON.parse(localStorage.getItem(KEY)) || {}); }
   catch (e) { return structuredClone(DEFAULT); }
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("無法儲存：瀏覽器拒絕寫入"); } }
+function save(fromSync) {
+  if (!fromSync) S.updatedAt = Date.now();
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("無法儲存：瀏覽器拒絕寫入"); }
+  if (!fromSync && Sync.on()) { clearTimeout(save.t); save.t = setTimeout(syncPush, 3000); }
+}
+async function syncPush() {
+  try { await Sync.push(S); } catch (e) { toast("同步失敗：" + e.message); }
+}
+// 打開 App 時：雲端比較新就下載，本機比較新就上傳
+async function syncNow(quiet) {
+  if (!Sync.on()) return;
+  try {
+    const remote = await Sync.pull();
+    if (remote && (remote.updatedAt || 0) > (S.updatedAt || 0)) {
+      const key = S.settings.apiKey;
+      S = Object.assign(structuredClone(DEFAULT), remote);
+      S.settings.apiKey = key;
+      save(true);
+      const c = Sync.cfg(); c.last = Date.now(); Sync.setCfg(c);
+      if (!quiet) toast("已從雲端更新資料");
+      VIEWS[view]();
+    } else if (!remote || (S.updatedAt || 0) > (remote.updatedAt || 0)) {
+      await Sync.push(S);
+      if (!quiet) toast("已上傳到雲端");
+    } else if (!quiet) toast("已經是最新");
+  } catch (e) { toast("同步失敗：" + e.message); }
+}
 function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("show"), 2200); }
 
 // ===== 行情 =====
@@ -402,6 +428,14 @@ VIEWS.settings = function () {
   <div class="stack">
   <div class="card"><h2>行情資料</h2><p>到 twelvedata.com 免費註冊，拿到 API 金鑰後貼在這裡。免費方案每天 800 次，個人使用夠了。</p>
     <label>Twelve Data API 金鑰<input id="s-key" type="password" autocomplete="off" value="${esc(st.apiKey)}"></label></div>
+  <div class="card"><h2>雲端同步</h2>
+    <p>資料先用你的同步密碼在這台裝置上加密，再存到你自己 GitHub 帳號的 Gist。每台裝置填一次 token 和同一組密碼，之後打開 App 就會自動同步。API 金鑰不會同步。</p>
+    <p class="muted">還沒有 token？<a href="https://github.com/settings/tokens/new?scopes=gist&description=%E6%8A%95%E8%B3%87%E5%8A%A9%E6%89%8B%E5%90%8C%E6%AD%A5" target="_blank" rel="noopener">在 GitHub 建立一組只有 gist 權限的 token</a></p>
+    <div class="fields">
+      <label>GitHub token<input id="y-token" type="password" autocomplete="off" value="${esc(Sync.cfg().token || "")}"></label>
+      <label>同步密碼（每台裝置要一樣）<input id="y-pass" type="password" autocomplete="new-password" value="${esc(Sync.cfg().pass || "")}"></label></div>
+    <div class="row"><button class="btn" id="y-save">儲存並同步</button><button class="btn ghost" id="y-now" ${Sync.on() ? "" : "disabled"}>立即同步</button><button class="btn danger sm" id="y-off" ${Sync.on() ? "" : "disabled"}>停用這台裝置的同步</button></div>
+    <p class="muted">${Sync.on() ? `已啟用。上次同步：${Sync.cfg().last ? new Date(Sync.cfg().last).toLocaleString("zh-TW", { hour12: false }) : "還沒有"}` : "尚未啟用"}。同步密碼忘了，雲端資料就解不開，但這台裝置上的資料還在。</p></div>
   <div class="card"><h2>資金與上限</h2><div class="fields">
     <label>總投資資金（台幣）<input data-s="capitalTWD" type="number" value="${st.capitalTWD}"></label>
     <label>美元匯率<input data-s="fx" type="number" step="0.01" value="${st.fx}"></label>
@@ -427,7 +461,16 @@ VIEWS.settings = function () {
     <div class="row"><button class="btn" id="b-imp">匯入</button><label class="btn ghost" style="display:inline-block">從檔案匯入<input id="b-file" type="file" accept=".json,application/json" style="display:none"></label></div>
     <p class="muted">換裝置時：在舊裝置按「下載備份檔」，存到 iCloud 雲碟、Google 雲端硬碟或 LINE 傳給自己，再到新裝置按「從檔案匯入」。</p></div>
   </div>`;
-  $("#s-key").addEventListener("change", e => { st.apiKey = e.target.value.trim(); save(); toast("已儲存金鑰"); });
+  $("#s-key").addEventListener("change", e => { st.apiKey = e.target.value.trim(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (x) {} toast("已儲存金鑰"); });
+  $("#y-save").onclick = async () => {
+    const token = $("#y-token").value.trim(), pass = $("#y-pass").value;
+    if (!token || pass.length < 6) return toast("請填 token，同步密碼至少 6 個字");
+    Sync.setCfg({ ...Sync.cfg(), token, pass });
+    await syncNow();
+    VIEWS.settings();
+  };
+  $("#y-now").onclick = async () => { await syncNow(); VIEWS.settings(); };
+  $("#y-off").onclick = () => { try { localStorage.removeItem(Sync.KEY); } catch (e) {} toast("這台裝置已停用同步，雲端資料保留"); VIEWS.settings(); };
   document.querySelectorAll("[data-s]").forEach(i => i.addEventListener("change", () => { st[i.dataset.s] = +i.value; save(); toast("已儲存"); }));
   const bind = (sel, list, idAttr, fAttr) => document.querySelectorAll(sel).forEach(i => i.addEventListener("change", () => {
     const row = i.closest(`[${idAttr}]`), o = S[list].find(x => x.id === row.getAttribute(idAttr)), k = i.getAttribute(fAttr);
@@ -465,4 +508,6 @@ VIEWS.settings = function () {
 if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
 // 請瀏覽器把資料標成永久保存，空間不足或久未使用時不要自動清掉
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncNow(true); });
 go("dash");
+syncNow(true);
