@@ -58,7 +58,7 @@ async function syncPush() {
 function applyRemote(remote, quiet) {
   const key = S.settings.apiKey;
   S = Object.assign(structuredClone(DEFAULT), remote);
-  S.settings.apiKey = key;
+  S.settings.apiKey = S.settings.apiKey || key;
   save(true);
   if (!quiet) toast("已從雲端更新資料");
   VIEWS[view]();
@@ -451,9 +451,9 @@ VIEWS.settings = function () {
     <label>Twelve Data API 金鑰<input id="s-key" type="password" autocomplete="off" value="${esc(st.apiKey)}"></label></div>
   <div class="card"><h2>雲端同步（Firebase）</h2>
     ${!window.FB || !FB.configured ? `<div class="banner warn">還沒有填入 Firebase 設定（firebase-config.js），所以暫時不能用。</div>`
-      : FB.user ? `<p>已登入：<b>${esc(FB.user.email || FB.user.uid)}</b>。資料會即時同步到其他用同一個帳號登入的裝置。</p>
+      : FB.user ? `<p>已登入：<b>${esc(FB.user.email || FB.user.uid)}</b>。資料和 Twelve Data 金鑰會即時同步到其他用同一個帳號登入的裝置，只有你的帳號讀得到。</p>
         <div class="row"><button class="btn ghost" id="f-now">立即同步</button><button class="btn danger sm" id="f-out">登出</button></div>`
-      : `<p>每台裝置登入同一個帳號，資料就會自動同步。API 金鑰不會同步。</p>
+      : `<p>每台裝置登入同一個帳號，資料就會自動同步，Twelve Data 金鑰也會一起同步。</p>
         <div class="row"><button class="btn" id="f-google">用 Google 登入</button></div>
         <details><summary>改用 Email 和密碼</summary><div class="fields" style="margin-top:8px"><label>Email<input id="f-email" type="email" autocomplete="username"></label><label>密碼（至少 6 個字）<input id="f-pass" type="password" autocomplete="current-password"></label></div>
         <div class="row"><button class="btn ghost" id="f-in">登入</button><button class="btn ghost" id="f-up">第一次使用：建立帳號</button></div></details>`}
@@ -473,17 +473,32 @@ VIEWS.settings = function () {
     <label>槓桿商品上限（%）<input data-s="levCapPct" type="number" value="${st.levCapPct}"></label>
     <label>單一個股上限（%）<input data-s="stockCapPct" type="number" value="${st.stockCapPct}"></label>
     <label>核心目標（%）<input data-s="corePct" type="number" value="${st.corePct}"></label></div></div>
-  <div class="card"><h2>持倉</h2><div class="tbl"><table><thead><tr><th>代號</th><th>股數</th><th>均價</th><th>幣別</th><th>類型</th><th>槓桿</th><th>手動價格</th><th></th></tr></thead><tbody>
-    ${S.holdings.map(h => `<tr data-hid="${h.id}"><td><input data-hf="symbol" value="${esc(h.symbol)}"></td><td><input data-hf="shares" type="number" value="${h.shares}"></td><td><input data-hf="avgCost" type="number" step="0.01" value="${h.avgCost}"></td>
-      <td><select data-hf="currency"><option ${h.currency === "USD" ? "selected" : ""}>USD</option><option ${h.currency === "TWD" ? "selected" : ""}>TWD</option></select></td>
-      <td><select data-hf="type"><option ${h.type === "核心" ? "selected" : ""}>核心</option><option ${h.type === "衛星" ? "selected" : ""}>衛星</option></select></td>
-      <td><input data-hf="leverage" type="number" value="${h.leverage || 1}"></td><td><input data-hf="manualPrice" type="number" step="0.01" placeholder="抓不到時填" value="${esc(h.manualPrice || "")}"></td><td><button class="btn danger sm" data-hdel="${h.id}">刪除</button></td></tr>`).join("")}
-    </tbody></table></div><div class="row"><button class="btn ghost sm" id="h-add">新增持倉</button><span class="muted">台股（例如 0050）如果抓不到行情，填手動價格。</span></div></div>
-  <div class="card"><h2>規則</h2><div class="tbl"><table><thead><tr><th>看哪個代號</th><th>條件</th><th>價位</th><th>要做甚麼</th><th>完成</th><th></th></tr></thead><tbody>
-    ${S.rules.map(r => `<tr data-rid="${r.id}"><td><input data-rf="symbol" value="${esc(r.symbol)}"></td><td><select data-rf="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${r.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></td>
-      <td><input data-rf="value" type="number" step="0.01" value="${r.value}"></td><td><input data-rf="action" value="${esc(r.action)}"></td><td><input data-rf="done" type="checkbox" ${r.done ? "checked" : ""}></td><td><button class="btn danger sm" data-rdel="${r.id}">刪除</button></td></tr>`).join("")}
-    </tbody></table></div><button class="btn ghost sm" id="r-add" style="width:fit-content">新增規則</button></div>
-  <div class="card"><h2>事件</h2>${S.events.map(e => `<div class="row" data-eid="${e.id}"><input data-ef="date" type="date" value="${esc(e.date)}" style="width:auto"><input data-ef="title" value="${esc(e.title)}" style="flex:1 1 200px"><button class="btn danger sm" data-edel="${e.id}">刪除</button></div>`).join("")}
+  <div class="card"><h2>持倉</h2>
+    ${S.holdings.map(h => `<div class="item" data-hid="${h.id}">
+      <div class="row between"><b>${esc(h.symbol || "新持倉")}</b><button class="btn danger sm" data-hdel="${h.id}">刪除</button></div>
+      <div class="fields f2">
+        <label>代號<input data-hf="symbol" value="${esc(h.symbol)}" autocapitalize="characters"></label>
+        <label>股數<input data-hf="shares" type="number" inputmode="decimal" value="${h.shares}"></label>
+        <label>均價<input data-hf="avgCost" type="number" inputmode="decimal" step="0.01" value="${h.avgCost}"></label>
+        <label>幣別<select data-hf="currency"><option ${h.currency === "USD" ? "selected" : ""}>USD</option><option ${h.currency === "TWD" ? "selected" : ""}>TWD</option></select></label>
+        <label>類型<select data-hf="type"><option ${h.type === "核心" ? "selected" : ""}>核心</option><option ${h.type === "衛星" ? "selected" : ""}>衛星</option></select></label>
+        <label>槓桿倍數<input data-hf="leverage" type="number" inputmode="decimal" value="${h.leverage || 1}"></label>
+        <label class="wide">手動價格（抓不到行情時填）<input data-hf="manualPrice" type="number" inputmode="decimal" step="0.01" value="${esc(h.manualPrice || "")}"></label>
+      </div></div>`).join("")}
+    <div class="row"><button class="btn ghost sm" id="h-add">新增持倉</button><span class="muted">台股（例如 0050）如果抓不到行情，填手動價格。</span></div></div>
+  <div class="card"><h2>規則</h2>
+    ${S.rules.map(r => `<div class="item" data-rid="${r.id}">
+      <div class="row between"><label class="row" style="gap:8px"><input data-rf="done" type="checkbox" ${r.done ? "checked" : ""}>已完成</label><button class="btn danger sm" data-rdel="${r.id}">刪除</button></div>
+      <div class="fields f2">
+        <label>看哪個代號<input data-rf="symbol" value="${esc(r.symbol)}" autocapitalize="characters"></label>
+        <label>條件<select data-rf="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${r.kind === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+        <label>價位<input data-rf="value" type="number" inputmode="decimal" step="0.01" value="${r.value}"></label>
+        <label class="wide">要做甚麼<textarea data-rf="action" rows="2">${esc(r.action)}</textarea></label>
+      </div></div>`).join("")}
+    <button class="btn ghost sm" id="r-add" style="width:fit-content">新增規則</button></div>
+  <div class="card"><h2>事件</h2>${S.events.map(e => `<div class="item" data-eid="${e.id}">
+      <div class="fields f2"><label>日期<input data-ef="date" type="date" value="${esc(e.date)}"></label><label class="wide">事件<input data-ef="title" value="${esc(e.title)}"></label></div>
+      <div class="row"><button class="btn danger sm" data-edel="${e.id}">刪除</button></div></div>`).join("")}
     <button class="btn ghost sm" id="e-add" style="width:fit-content">新增事件</button></div>
   <div class="card"><h2>備份與匯入</h2><p>備份不包含 API 金鑰。</p>
     <div class="row"><button class="btn ghost" id="b-copy">複製備份</button><a class="btn ghost" id="b-dl" style="text-decoration:none">下載備份檔</a></div>
@@ -491,7 +506,7 @@ VIEWS.settings = function () {
     <div class="row"><button class="btn" id="b-imp">匯入</button><label class="btn ghost" style="display:inline-block">從檔案匯入<input id="b-file" type="file" accept=".json,application/json" style="display:none"></label></div>
     <p class="muted">換裝置時：在舊裝置按「下載備份檔」，存到 iCloud 雲碟、Google 雲端硬碟或 LINE 傳給自己，再到新裝置按「從檔案匯入」。</p></div>
   </div>`;
-  $("#s-key").addEventListener("change", e => { st.apiKey = e.target.value.trim(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (x) {} toast("已儲存金鑰"); });
+  $("#s-key").addEventListener("change", e => { st.apiKey = e.target.value.trim(); save(); toast(fbOn() ? "已儲存金鑰，會同步到你的其他裝置" : "已儲存金鑰"); });
   const fbErr = e => toast(({ "auth/popup-closed-by-user": "登入視窗被關掉了", "auth/invalid-credential": "Email 或密碼不對", "auth/email-already-in-use": "這個 Email 已經註冊過，請直接登入", "auth/weak-password": "密碼至少 6 個字", "auth/unauthorized-domain": "這個網址還沒加進 Firebase 的授權網域" })[e.code] || "登入失敗：" + (e.code || e.message));
   const on = (id, fn) => { const el = $("#" + id); if (el) el.onclick = fn; };
   on("f-google", () => FB.signInGoogle().catch(fbErr));

@@ -19,11 +19,8 @@ if (FB.configured) {
   FB.signUpEmail = (e, p) => A.createUserWithEmailAndPassword(auth, e, p);
   FB.signOut = () => A.signOut(auth);
   FB.pull = async () => { const s = await F.getDoc(ref()); return s.exists() ? JSON.parse(s.data().json) : null; };
-  FB.push = state => {
-    const data = structuredClone(state);
-    data.settings.apiKey = "";
-    return F.setDoc(ref(), { json: JSON.stringify(data), updatedAt: data.updatedAt || Date.now() });
-  };
+  // 包含 Twelve Data 金鑰：這份文件只有登入的本人讀得到（firestore.rules）
+  FB.push = state => F.setDoc(ref(), { json: JSON.stringify(state), updatedAt: state.updatedAt || Date.now() });
 
   A.onAuthStateChanged(auth, u => {
     FB.user = u; FB.ready = true;
