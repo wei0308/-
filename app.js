@@ -170,22 +170,25 @@ function ruleStatus(rule, a) {
 
 // ===== 畫面 =====
 const VIEWS = {};
-// 「工具」底下有三個分頁：計算機、下單檢查、公司體檢
-const TOOLS = [["calc", "計算機"], ["check", "下單檢查"], ["health", "公司體檢"]];
-let lastTool = "calc";
-const toolTabs = active => `<div class="row" style="margin-bottom:16px" role="group" aria-label="工具">${TOOLS.map(([k, t]) => `<button class="btn sm ${k === active ? "" : "ghost"}" data-tool="${k}">${t}</button>`).join("")}</div>`;
-document.addEventListener("click", e => { const b = e.target.closest("[data-tool]"); if (b) go(b.dataset.tool); });
+// 有子分頁的選單：「工具」＝計算機、下單檢查、公司體檢；「學習」＝課程、速查
+const GROUPS = {
+  tools: { items: [["calc", "計算機"], ["check", "下單檢查"], ["health", "公司體檢"]], last: "calc" },
+  learn: { items: [["course", "課程"], ["ref", "速查"]], last: "course" }
+};
+const groupOf = v => Object.keys(GROUPS).find(g => GROUPS[g].items.some(([k]) => k === v));
+const subTabs = (g, active) => `<div class="row" style="margin-bottom:16px" role="group">${GROUPS[g].items.map(([k, t]) => `<button class="btn sm ${k === active ? "" : "ghost"}" data-sub="${k}">${t}</button>`).join("")}</div>`;
+document.addEventListener("click", e => { const b = e.target.closest("[data-sub]"); if (b) go(b.dataset.sub); });
 function go(v) {
-  if (v === "tools") v = lastTool;
-  const isTool = TOOLS.some(([k]) => k === v);
-  if (isTool) lastTool = v;
+  if (GROUPS[v]) v = GROUPS[v].last;
+  const g = groupOf(v);
+  if (g) GROUPS[g].last = v;
   view = v;
-  const nav = isTool ? "tools" : v;
+  const nav = g || v;
   document.querySelectorAll(".tab").forEach(t => t.toggleAttribute("aria-current", t.dataset.view === nav));
   const cur = document.querySelector(`.tab[data-view="${nav}"]`);
   if (cur) cur.setAttribute("aria-current", "page");
   VIEWS[v]();
-  if (isTool) $("#main").insertAdjacentHTML("afterbegin", toolTabs(v));
+  if (g) $("#main").insertAdjacentHTML("afterbegin", subTabs(g, v));
   $("#main").focus({ preventScroll: true });
   window.scrollTo(0, 0);
 }

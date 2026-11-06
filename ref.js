@@ -78,5 +78,5 @@ VIEWS.ref = function () {
     ${!cs.length && !ss.length && !vs.length && !rs.length && !cr.length ? `<div class="banner info">找不到「${esc(q)}」，換個關鍵字試試。</div>` : ""}
   </div>`;
   const inp = $("#r-q");
-  inp.addEventListener("input", () => { VIEWS.ref.q = inp.value; const pos = inp.selectionStart; VIEWS.ref(); const n = $("#r-q"); n.focus(); n.setSelectionRange(pos, pos); });
+  inp.addEventListener("input", () => { VIEWS.ref.q = inp.value; const pos = inp.selectionStart; go("ref"); const n = $("#r-q"); n.focus(); n.setSelectionRange(pos, pos); });
 };
