@@ -170,11 +170,22 @@ function ruleStatus(rule, a) {
 
 // ===== 畫面 =====
 const VIEWS = {};
+// 「工具」底下有三個分頁：計算機、下單檢查、公司體檢
+const TOOLS = [["calc", "計算機"], ["check", "下單檢查"], ["health", "公司體檢"]];
+let lastTool = "calc";
+const toolTabs = active => `<div class="row" style="margin-bottom:16px" role="group" aria-label="工具">${TOOLS.map(([k, t]) => `<button class="btn sm ${k === active ? "" : "ghost"}" data-tool="${k}">${t}</button>`).join("")}</div>`;
+document.addEventListener("click", e => { const b = e.target.closest("[data-tool]"); if (b) go(b.dataset.tool); });
 function go(v) {
+  if (v === "tools") v = lastTool;
+  const isTool = TOOLS.some(([k]) => k === v);
+  if (isTool) lastTool = v;
   view = v;
-  document.querySelectorAll(".tab").forEach(t => t.toggleAttribute("aria-current", t.dataset.view === v));
-  if (document.querySelector(`.tab[data-view="${v}"]`)) document.querySelector(`.tab[data-view="${v}"]`).setAttribute("aria-current", "page");
+  const nav = isTool ? "tools" : v;
+  document.querySelectorAll(".tab").forEach(t => t.toggleAttribute("aria-current", t.dataset.view === nav));
+  const cur = document.querySelector(`.tab[data-view="${nav}"]`);
+  if (cur) cur.setAttribute("aria-current", "page");
   VIEWS[v]();
+  if (isTool) $("#main").insertAdjacentHTML("afterbegin", toolTabs(v));
   $("#main").focus({ preventScroll: true });
   window.scrollTo(0, 0);
 }
@@ -189,7 +200,7 @@ VIEWS.dash = async function (force) {
     <div class="stack" id="dashBody"><div class="card"><p>載入中…</p></div></div>`;
   $("#refresh").onclick = () => VIEWS.dash(true);
   if (!syms.length) {
-    $("#dashBody").innerHTML = `<div class="banner info">還沒有持倉。到「設定」新增持倉和規則，或貼上備份資料匯入。</div>`;
+    $("#dashBody").innerHTML = `<div class="banner info">還沒有持倉。到「持倉」新增持倉和規則，或到「設定」匯入備份。</div>`;
     return;
   }
   const A = {}, errs = [];
@@ -202,6 +213,7 @@ VIEWS.dash = async function (force) {
       else errs.push(`${s}：${e.message}`);
     }
   }
+  if (view !== "dash" || !$("#dashBody")) return; // 抓資料期間已經切到別的分頁
   const c = cacheGet();
   const times = syms.map(s => c[s]?.t).filter(Boolean);
   $("#status").textContent = times.length ? `資料時間 ${new Date(Math.min(...times)).toLocaleString("zh-TW", { hour12: false })}` : "";
@@ -425,11 +437,10 @@ VIEWS.check = function () {
     $("#k-res").innerHTML = `<div class="row between"><h2>${n} / ${CHECKS.length} 項</h2>${ok ? `<span class="chip ok">可以下單</span>` : `<span class="chip bad">還不能下單</span>`}</div>
       ${!(+c.stop > 0) ? `<p>還沒填停損價。</p>` : ""}
       <div class="row"><button class="btn" id="k-j" ${ok ? "" : "disabled"}>建立交易日誌草稿</button><button class="btn ghost" id="k-clear">清除重來</button></div>
-      <div class="row"><button class="btn ghost sm" id="k-health">打開公司體檢</button><button class="btn ghost sm" id="k-ta">打開技術分析</button></div>`;
-    $("#k-health").onclick = () => go("health");
+      <div class="row"><button class="btn ghost sm" id="k-ta">打開技術分析</button></div>`;
     $("#k-ta").onclick = () => { if (c.symbol) TAV.sym = c.symbol; go("ta"); };
     $("#k-j").onclick = () => { S.journal.unshift({ id: uid(), date: new Date().toISOString().slice(0, 10), symbol: c.symbol, stop: c.stop, reason: "", source: "", notes: [], exit: {} }); S.check = { symbol: "", stop: "", items: {} }; save(); toast("已建立日誌草稿"); go("journal"); };
-    $("#k-clear").onclick = () => { S.check = { symbol: "", stop: "", items: {} }; save(); VIEWS.check(); };
+    $("#k-clear").onclick = () => { S.check = { symbol: "", stop: "", items: {} }; save(); go("check"); };
   };
   document.querySelectorAll("#main input").forEach(i => i.addEventListener("input", upd));
   upd();
@@ -495,35 +506,11 @@ function jCard(e) {
     <div class="row"><button class="btn danger sm" data-jdel="${e.id}">刪除這筆</button></div></details>`;
 }
 
-// --- 設定 ---
-VIEWS.settings = function () {
+// --- 持倉：資金上限、持倉、規則、事件 ---
+VIEWS.port = function () {
   const st = S.settings;
-  $("#main").innerHTML = `<h1>設定</h1><p class="sub">資料只存在這台裝置。換手機或電腦時，用最下面的備份和匯入。</p>
+  $("#main").innerHTML = `<h1>持倉</h1><p class="sub">持倉、規則和事件。修改後會自動儲存，登入 Firebase 就會同步到其他裝置。</p>
   <div class="stack">
-  <div class="card"><h2>行情資料</h2><p>到 twelvedata.com 免費註冊，拿到 API 金鑰後貼在這裡。免費方案每天 800 次，個人使用夠了。</p>
-    <label>Twelve Data API 金鑰<input id="s-key" type="password" autocomplete="off" value="${esc(st.apiKey)}"></label></div>
-  <div class="card"><h2>雲端同步（Firebase）</h2>
-    ${!window.FB || !FB.configured ? `<div class="banner warn">還沒有填入 Firebase 設定（firebase-config.js），所以暫時不能用。</div>`
-      : FB.user ? `<p>已登入：<b>${esc(FB.user.email || FB.user.uid)}</b>。資料和 Twelve Data 金鑰會即時同步到其他用同一個帳號登入的裝置，只有你的帳號讀得到。</p>
-        <div class="row"><button class="btn ghost" id="f-now">立即同步</button><button class="btn danger sm" id="f-out">登出</button></div>`
-      : `<p>每台裝置登入同一個帳號，資料就會自動同步，Twelve Data 金鑰也會一起同步。</p>
-        <div class="row"><button class="btn" id="f-google">用 Google 登入</button></div>
-        <details><summary>改用 Email 和密碼</summary><div class="fields" style="margin-top:8px"><label>Email<input id="f-email" type="email" autocomplete="username"></label><label>密碼（至少 6 個字）<input id="f-pass" type="password" autocomplete="current-password"></label></div>
-        <div class="row"><button class="btn ghost" id="f-in">登入</button><button class="btn ghost" id="f-up">第一次使用：建立帳號</button></div></details>`}
-  </div>
-  <div class="card"><h2>推播通知</h2>
-    <p>每天美股收盤後（台灣約早上 5:40）和台灣晚上 8 點，背景程式會檢查你的規則和事件，有狀況就推播到這台裝置。需要先登入上面的 Firebase。</p>
-    ${pushStatus()}
-    <label class="row" style="gap:8px"><input type="checkbox" id="p-daily" ${st.dailySummary !== false ? "checked" : ""}>每天收盤後傳一則持倉摘要</label>
-    <div class="row"><button class="btn" id="p-on" ${fbOn() ? "" : "disabled"}>允許這台裝置接收通知</button><button class="btn ghost" id="p-test">測試通知畫面</button></div></div>
-  <details class="card"><summary>其他同步方式：GitHub Gist（加密）</summary>
-    <p>資料先用你的同步密碼在這台裝置上加密，再存到你自己 GitHub 帳號的 Gist。每台裝置填一次 token 和同一組密碼，之後打開 App 就會自動同步。API 金鑰不會同步。</p>
-    <p class="muted">還沒有 token？<a href="https://github.com/settings/tokens/new?scopes=gist&description=%E6%8A%95%E8%B3%87%E5%8A%A9%E6%89%8B%E5%90%8C%E6%AD%A5" target="_blank" rel="noopener">在 GitHub 建立一組只有 gist 權限的 token</a></p>
-    <div class="fields">
-      <label>GitHub token<input id="y-token" type="password" autocomplete="off" value="${esc(Sync.cfg().token || "")}"></label>
-      <label>同步密碼（每台裝置要一樣）<input id="y-pass" type="password" autocomplete="new-password" value="${esc(Sync.cfg().pass || "")}"></label></div>
-    <div class="row"><button class="btn" id="y-save">儲存並同步</button><button class="btn ghost" id="y-now" ${Sync.on() ? "" : "disabled"}>立即同步</button><button class="btn danger sm" id="y-off" ${Sync.on() ? "" : "disabled"}>停用這台裝置的同步</button></div>
-    <p class="muted">${Sync.on() ? `已啟用。上次同步：${Sync.cfg().last ? new Date(Sync.cfg().last).toLocaleString("zh-TW", { hour12: false }) : "還沒有"}` : "尚未啟用"}。同步密碼忘了，雲端資料就解不開，但這台裝置上的資料還在。</p></details>
   <div class="card"><h2>資金與上限</h2><div class="fields">
     <label>總投資資金（台幣）<input data-s="capitalTWD" type="number" value="${st.capitalTWD}"></label>
     <label>美元匯率<input data-s="fx" type="number" step="0.01" value="${st.fx}"></label>
@@ -558,6 +545,52 @@ VIEWS.settings = function () {
       <div class="fields f2"><label>日期<input data-ef="date" type="date" value="${esc(e.date)}"></label><label class="wide">事件<input data-ef="title" value="${esc(e.title)}"></label></div>
       <div class="row"><button class="btn danger sm" data-edel="${e.id}">刪除</button></div></div>`).join("")}
     <button class="btn ghost sm" id="e-add" style="width:fit-content">新增事件</button></div>
+  </div>`;
+  document.querySelectorAll("[data-s]").forEach(i => i.addEventListener("change", () => { st[i.dataset.s] = +i.value; save(); toast("已儲存"); }));
+  const bind = (sel, list, idAttr, fAttr) => document.querySelectorAll(sel).forEach(i => i.addEventListener("change", () => {
+    const row = i.closest(`[${idAttr}]`), o = S[list].find(x => x.id === row.getAttribute(idAttr)), k = i.getAttribute(fAttr);
+    o[k] = i.type === "checkbox" ? i.checked : i.type === "number" ? (i.value === "" ? "" : +i.value) : (k === "symbol" ? i.value.trim().toUpperCase() : i.value);
+    save(); toast("已儲存");
+  }));
+  bind("[data-hf]", "holdings", "data-hid", "data-hf");
+  bind("[data-rf]", "rules", "data-rid", "data-rf");
+  bind("[data-ef]", "events", "data-eid", "data-ef");
+  const del = (attr, list) => document.querySelectorAll(`[${attr}]`).forEach(b => b.onclick = () => { S[list] = S[list].filter(x => x.id !== b.getAttribute(attr)); save(); VIEWS.port(); });
+  del("data-hdel", "holdings"); del("data-rdel", "rules"); del("data-edel", "events");
+  $("#h-add").onclick = () => { S.holdings.push({ id: uid(), symbol: "", shares: 0, avgCost: 0, currency: "USD", type: "衛星", leverage: 1 }); save(); VIEWS.port(); };
+  $("#r-add").onclick = () => { S.rules.push({ id: uid(), symbol: "", kind: "closeBelow", value: 0, action: "", done: false }); save(); VIEWS.port(); };
+  $("#e-add").onclick = () => { S.events.push({ id: uid(), date: new Date().toISOString().slice(0, 10), title: "" }); save(); VIEWS.port(); };
+};
+
+// --- 設定 ---
+VIEWS.settings = function () {
+  const st = S.settings;
+  $("#main").innerHTML = `<h1>設定</h1><p class="sub">資料只存在這台裝置。換手機或電腦時，用最下面的備份和匯入。</p>
+  <div class="stack">
+  <div class="card"><h2>行情資料</h2><p>到 twelvedata.com 免費註冊，拿到 API 金鑰後貼在這裡。免費方案每天 800 次，個人使用夠了。</p>
+    <label>Twelve Data API 金鑰<input id="s-key" type="password" autocomplete="off" value="${esc(st.apiKey)}"></label></div>
+  <div class="card"><h2>雲端同步（Firebase）</h2>
+    ${!window.FB || !FB.configured ? `<div class="banner warn">還沒有填入 Firebase 設定（firebase-config.js），所以暫時不能用。</div>`
+      : FB.user ? `<p>已登入：<b>${esc(FB.user.email || FB.user.uid)}</b>。資料和 Twelve Data 金鑰會即時同步到其他用同一個帳號登入的裝置，只有你的帳號讀得到。</p>
+        <div class="row"><button class="btn ghost" id="f-now">立即同步</button><button class="btn danger sm" id="f-out">登出</button></div>`
+      : `<p>每台裝置登入同一個帳號，資料就會自動同步，Twelve Data 金鑰也會一起同步。</p>
+        <div class="row"><button class="btn" id="f-google">用 Google 登入</button></div>
+        <details><summary>改用 Email 和密碼</summary><div class="fields" style="margin-top:8px"><label>Email<input id="f-email" type="email" autocomplete="username"></label><label>密碼（至少 6 個字）<input id="f-pass" type="password" autocomplete="current-password"></label></div>
+        <div class="row"><button class="btn ghost" id="f-in">登入</button><button class="btn ghost" id="f-up">第一次使用：建立帳號</button></div></details>`}
+  </div>
+  <div class="card"><h2>推播通知</h2>
+    <p>每天美股收盤後（台灣約早上 5:40）和台灣晚上 8 點，背景程式會檢查你的規則和事件，有狀況就推播到這台裝置。需要先登入上面的 Firebase。</p>
+    ${pushStatus()}
+    <label class="row" style="gap:8px"><input type="checkbox" id="p-daily" ${st.dailySummary !== false ? "checked" : ""}>每天收盤後傳一則持倉摘要</label>
+    <div class="row"><button class="btn" id="p-on" ${fbOn() ? "" : "disabled"}>允許這台裝置接收通知</button><button class="btn ghost" id="p-test">測試通知畫面</button></div></div>
+  <details class="card"><summary>其他同步方式：GitHub Gist（加密）</summary>
+    <p>資料先用你的同步密碼在這台裝置上加密，再存到你自己 GitHub 帳號的 Gist。每台裝置填一次 token 和同一組密碼，之後打開 App 就會自動同步。API 金鑰不會同步。</p>
+    <p class="muted">還沒有 token？<a href="https://github.com/settings/tokens/new?scopes=gist&description=%E6%8A%95%E8%B3%87%E5%8A%A9%E6%89%8B%E5%90%8C%E6%AD%A5" target="_blank" rel="noopener">在 GitHub 建立一組只有 gist 權限的 token</a></p>
+    <div class="fields">
+      <label>GitHub token<input id="y-token" type="password" autocomplete="off" value="${esc(Sync.cfg().token || "")}"></label>
+      <label>同步密碼（每台裝置要一樣）<input id="y-pass" type="password" autocomplete="new-password" value="${esc(Sync.cfg().pass || "")}"></label></div>
+    <div class="row"><button class="btn" id="y-save">儲存並同步</button><button class="btn ghost" id="y-now" ${Sync.on() ? "" : "disabled"}>立即同步</button><button class="btn danger sm" id="y-off" ${Sync.on() ? "" : "disabled"}>停用這台裝置的同步</button></div>
+    <p class="muted">${Sync.on() ? `已啟用。上次同步：${Sync.cfg().last ? new Date(Sync.cfg().last).toLocaleString("zh-TW", { hour12: false }) : "還沒有"}` : "尚未啟用"}。同步密碼忘了，雲端資料就解不開，但這台裝置上的資料還在。</p></details>
   <div class="card"><h2>備份與匯入</h2><p>備份不包含 API 金鑰。</p>
     <div class="row"><button class="btn ghost" id="b-copy">複製備份</button><a class="btn ghost" id="b-dl" style="text-decoration:none">下載備份檔</a></div>
     <label>貼上備份資料匯入（會取代目前資料）<textarea id="b-in" placeholder="{ ... }"></textarea></label>
@@ -588,20 +621,6 @@ VIEWS.settings = function () {
   };
   $("#y-now").onclick = async () => { await syncNow(); VIEWS.settings(); };
   $("#y-off").onclick = () => { try { localStorage.removeItem(Sync.KEY); } catch (e) {} toast("這台裝置已停用同步，雲端資料保留"); VIEWS.settings(); };
-  document.querySelectorAll("[data-s]").forEach(i => i.addEventListener("change", () => { st[i.dataset.s] = +i.value; save(); toast("已儲存"); }));
-  const bind = (sel, list, idAttr, fAttr) => document.querySelectorAll(sel).forEach(i => i.addEventListener("change", () => {
-    const row = i.closest(`[${idAttr}]`), o = S[list].find(x => x.id === row.getAttribute(idAttr)), k = i.getAttribute(fAttr);
-    o[k] = i.type === "checkbox" ? i.checked : i.type === "number" ? (i.value === "" ? "" : +i.value) : (k === "symbol" ? i.value.trim().toUpperCase() : i.value);
-    save(); toast("已儲存");
-  }));
-  bind("[data-hf]", "holdings", "data-hid", "data-hf");
-  bind("[data-rf]", "rules", "data-rid", "data-rf");
-  bind("[data-ef]", "events", "data-eid", "data-ef");
-  const del = (attr, list) => document.querySelectorAll(`[${attr}]`).forEach(b => b.onclick = () => { S[list] = S[list].filter(x => x.id !== b.getAttribute(attr)); save(); VIEWS.settings(); });
-  del("data-hdel", "holdings"); del("data-rdel", "rules"); del("data-edel", "events");
-  $("#h-add").onclick = () => { S.holdings.push({ id: uid(), symbol: "", shares: 0, avgCost: 0, currency: "USD", type: "衛星", leverage: 1 }); save(); VIEWS.settings(); };
-  $("#r-add").onclick = () => { S.rules.push({ id: uid(), symbol: "", kind: "closeBelow", value: 0, action: "", done: false }); save(); VIEWS.settings(); };
-  $("#e-add").onclick = () => { S.events.push({ id: uid(), date: new Date().toISOString().slice(0, 10), title: "" }); save(); VIEWS.settings(); };
   const backup = () => { const b = structuredClone(S); b.settings.apiKey = ""; return JSON.stringify(b, null, 2); };
   $("#b-copy").onclick = async () => { try { await navigator.clipboard.writeText(backup()); toast("已複製，可以貼到另一台裝置"); } catch (e) { $("#b-in").value = backup(); toast("無法存取剪貼簿，已放進下方文字框"); } };
   $("#b-dl").href = URL.createObjectURL(new Blob([backup()], { type: "application/json" }));

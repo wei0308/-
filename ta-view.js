@@ -18,7 +18,8 @@ VIEWS.ta = async function (symArg) {
   $("#t-go").onclick = () => { const s = $("#t-sym").value.trim().toUpperCase(); if (s) VIEWS.ta(s); };
   if (!TAV.sym) return;
   let bars;
-  try { bars = (await series(TAV.sym)).bars; } catch (e) { $("#t-body").innerHTML = `<div class="banner warn">${esc(e.message)}</div>`; return; }
+  try { bars = (await series(TAV.sym)).bars; } catch (e) { if ($("#t-body")) $("#t-body").innerHTML = `<div class="banner warn">${esc(e.message)}</div>`; return; }
+  if (view !== "ta" || !$("#t-body")) return; // 抓資料期間已經切到別的分頁
   if (bars.length < 30) { $("#t-body").innerHTML = `<div class="banner warn">資料太少，沒辦法分析。</div>`; return; }
   const R = TA.run(bars);
   renderTA(bars, R);

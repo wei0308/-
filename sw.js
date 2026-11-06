@@ -1,5 +1,5 @@
 // 離線快取：App 本體先用快取，行情 API 一律走網路
-const VERSION = "v7";
+const VERSION = "v8";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "ref.js", "analysis.js", "ta-view.js", "indicators.js", "sync.js", "firebase.js", "firebase-config.js", "manifest.json", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-180.png"];
 
 self.addEventListener("install", e => e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
@@ -8,9 +8,10 @@ self.addEventListener("activate", e => e.waitUntil(
 ));
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
-  if (url.origin !== location.origin) return;
+  if (url.origin !== location.origin || e.request.method !== "GET") return;
   e.respondWith(
-    fetch(e.request).then(r => { const copy = r.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); return r; })
+    // no-cache：每次都向伺服器確認有沒有新版，避免瀏覽器拿到舊的程式
+    fetch(e.request.url, { cache: "no-cache" }).then(r => { const copy = r.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); return r; })
       .catch(() => caches.match(e.request))
   );
 });
