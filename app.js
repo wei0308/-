@@ -49,13 +49,34 @@ function load() {
 function save(fromSync) {
   if (!fromSync) S.updatedAt = Date.now();
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("無法儲存：瀏覽器拒絕寫入"); }
-  if (!fromSync && Sync.on()) { clearTimeout(save.t); save.t = setTimeout(syncPush, 3000); }
+  if (!fromSync && (fbOn() || Sync.on())) { clearTimeout(save.t); save.t = setTimeout(syncPush, fbOn() ? 1500 : 3000); }
 }
+const fbOn = () => !!(window.FB && FB.user);
 async function syncPush() {
-  try { await Sync.push(S); } catch (e) { toast("同步失敗：" + e.message); }
+  try { fbOn() ? await FB.push(S) : await Sync.push(S); } catch (e) { toast("同步失敗：" + e.message); }
 }
+function applyRemote(remote, quiet) {
+  const key = S.settings.apiKey;
+  S = Object.assign(structuredClone(DEFAULT), remote);
+  S.settings.apiKey = key;
+  save(true);
+  if (!quiet) toast("已從雲端更新資料");
+  VIEWS[view]();
+}
+// Firebase：登入後比較一次，之後靠即時監聽
+async function fbReconcile(quiet) {
+  try {
+    const remote = await FB.pull();
+    if (remote && (remote.updatedAt || 0) > (S.updatedAt || 0)) applyRemote(remote, quiet);
+    else if (!remote || (S.updatedAt || 0) > (remote.updatedAt || 0)) { await FB.push(S); if (!quiet) toast("已上傳到雲端"); }
+    else if (!quiet) toast("已經是最新");
+  } catch (e) { toast("同步失敗：" + e.message); }
+}
+window.addEventListener("fb-auth", e => { if (e.detail) fbReconcile(true); if (view === "settings") VIEWS.settings(); });
+window.addEventListener("fb-remote", e => { if ((e.detail.updatedAt || 0) > (S.updatedAt || 0)) applyRemote(e.detail); });
 // 打開 App 時：雲端比較新就下載，本機比較新就上傳
 async function syncNow(quiet) {
+  if (fbOn()) return fbReconcile(quiet);
   if (!Sync.on()) return;
   try {
     const remote = await Sync.pull();
@@ -428,14 +449,23 @@ VIEWS.settings = function () {
   <div class="stack">
   <div class="card"><h2>行情資料</h2><p>到 twelvedata.com 免費註冊，拿到 API 金鑰後貼在這裡。免費方案每天 800 次，個人使用夠了。</p>
     <label>Twelve Data API 金鑰<input id="s-key" type="password" autocomplete="off" value="${esc(st.apiKey)}"></label></div>
-  <div class="card"><h2>雲端同步</h2>
+  <div class="card"><h2>雲端同步（Firebase）</h2>
+    ${!window.FB || !FB.configured ? `<div class="banner warn">還沒有填入 Firebase 設定（firebase-config.js），所以暫時不能用。</div>`
+      : FB.user ? `<p>已登入：<b>${esc(FB.user.email || FB.user.uid)}</b>。資料會即時同步到其他用同一個帳號登入的裝置。</p>
+        <div class="row"><button class="btn ghost" id="f-now">立即同步</button><button class="btn danger sm" id="f-out">登出</button></div>`
+      : `<p>每台裝置登入同一個帳號，資料就會自動同步。API 金鑰不會同步。</p>
+        <div class="row"><button class="btn" id="f-google">用 Google 登入</button></div>
+        <details><summary>改用 Email 和密碼</summary><div class="fields" style="margin-top:8px"><label>Email<input id="f-email" type="email" autocomplete="username"></label><label>密碼（至少 6 個字）<input id="f-pass" type="password" autocomplete="current-password"></label></div>
+        <div class="row"><button class="btn ghost" id="f-in">登入</button><button class="btn ghost" id="f-up">第一次使用：建立帳號</button></div></details>`}
+  </div>
+  <details class="card"><summary>其他同步方式：GitHub Gist（加密）</summary>
     <p>資料先用你的同步密碼在這台裝置上加密，再存到你自己 GitHub 帳號的 Gist。每台裝置填一次 token 和同一組密碼，之後打開 App 就會自動同步。API 金鑰不會同步。</p>
     <p class="muted">還沒有 token？<a href="https://github.com/settings/tokens/new?scopes=gist&description=%E6%8A%95%E8%B3%87%E5%8A%A9%E6%89%8B%E5%90%8C%E6%AD%A5" target="_blank" rel="noopener">在 GitHub 建立一組只有 gist 權限的 token</a></p>
     <div class="fields">
       <label>GitHub token<input id="y-token" type="password" autocomplete="off" value="${esc(Sync.cfg().token || "")}"></label>
       <label>同步密碼（每台裝置要一樣）<input id="y-pass" type="password" autocomplete="new-password" value="${esc(Sync.cfg().pass || "")}"></label></div>
     <div class="row"><button class="btn" id="y-save">儲存並同步</button><button class="btn ghost" id="y-now" ${Sync.on() ? "" : "disabled"}>立即同步</button><button class="btn danger sm" id="y-off" ${Sync.on() ? "" : "disabled"}>停用這台裝置的同步</button></div>
-    <p class="muted">${Sync.on() ? `已啟用。上次同步：${Sync.cfg().last ? new Date(Sync.cfg().last).toLocaleString("zh-TW", { hour12: false }) : "還沒有"}` : "尚未啟用"}。同步密碼忘了，雲端資料就解不開，但這台裝置上的資料還在。</p></div>
+    <p class="muted">${Sync.on() ? `已啟用。上次同步：${Sync.cfg().last ? new Date(Sync.cfg().last).toLocaleString("zh-TW", { hour12: false }) : "還沒有"}` : "尚未啟用"}。同步密碼忘了，雲端資料就解不開，但這台裝置上的資料還在。</p></details>
   <div class="card"><h2>資金與上限</h2><div class="fields">
     <label>總投資資金（台幣）<input data-s="capitalTWD" type="number" value="${st.capitalTWD}"></label>
     <label>美元匯率<input data-s="fx" type="number" step="0.01" value="${st.fx}"></label>
@@ -462,6 +492,13 @@ VIEWS.settings = function () {
     <p class="muted">換裝置時：在舊裝置按「下載備份檔」，存到 iCloud 雲碟、Google 雲端硬碟或 LINE 傳給自己，再到新裝置按「從檔案匯入」。</p></div>
   </div>`;
   $("#s-key").addEventListener("change", e => { st.apiKey = e.target.value.trim(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (x) {} toast("已儲存金鑰"); });
+  const fbErr = e => toast(({ "auth/popup-closed-by-user": "登入視窗被關掉了", "auth/invalid-credential": "Email 或密碼不對", "auth/email-already-in-use": "這個 Email 已經註冊過，請直接登入", "auth/weak-password": "密碼至少 6 個字", "auth/unauthorized-domain": "這個網址還沒加進 Firebase 的授權網域" })[e.code] || "登入失敗：" + (e.code || e.message));
+  const on = (id, fn) => { const el = $("#" + id); if (el) el.onclick = fn; };
+  on("f-google", () => FB.signInGoogle().catch(fbErr));
+  on("f-in", () => FB.signInEmail($("#f-email").value.trim(), $("#f-pass").value).catch(fbErr));
+  on("f-up", () => FB.signUpEmail($("#f-email").value.trim(), $("#f-pass").value).catch(fbErr));
+  on("f-out", async () => { await FB.signOut(); toast("已登出，這台裝置的資料保留"); });
+  on("f-now", () => fbReconcile());
   $("#y-save").onclick = async () => {
     const token = $("#y-token").value.trim(), pass = $("#y-pass").value;
     if (!token || pass.length < 6) return toast("請填 token，同步密碼至少 6 個字");
