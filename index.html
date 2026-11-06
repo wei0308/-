@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="投資助手">
+<title>投資助手</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <nav class="nav" aria-label="主選單">
+    <div class="brand">投資助手</div>
+    <button class="tab" data-view="dash" aria-current="page" aria-label="總覽"><span class="ic" aria-hidden="true">◎</span><span>總覽</span></button>
+    <button class="tab" data-view="calc" aria-label="計算機"><span class="ic" aria-hidden="true">÷</span><span>計算機</span></button>
+    <button class="tab" data-view="check" aria-label="下單檢查"><span class="ic" aria-hidden="true">✓</span><span>下單檢查</span></button>
+    <button class="tab" data-view="health" aria-label="公司體檢"><span class="ic" aria-hidden="true">♥</span><span>公司體檢</span></button>
+    <button class="tab" data-view="journal" aria-label="日誌"><span class="ic" aria-hidden="true">✎</span><span>日誌</span></button>
+    <button class="tab" data-view="settings" aria-label="設定"><span class="ic" aria-hidden="true">⚙</span><span>設定</span></button>
+  </nav>
+  <main id="main" tabindex="-1"></main>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="indicators.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
