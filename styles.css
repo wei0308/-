@@ -111,6 +111,9 @@ li + li { margin-top: 4px; }
 .entry { display: grid; gap: 6px; padding: 12px; border-radius: 10px; background: var(--bg); }
 details summary { cursor: pointer; font-weight: 600; }
 svg.chart { width: 100%; height: auto; display: block; }
+#t-svg { touch-action: pan-y; cursor: crosshair; }
+#t-svg .ax { font-size: 22px; }
+#t-svg .lb { font-size: 24px; }
 svg.mini { width: 100%; height: auto; display: block; margin: 4px 0; }
 svg .ax { font-family: var(--mono); font-size: 18px; fill: var(--muted); }
 svg .lb { font-family: var(--font); font-size: 19px; font-weight: 700; }

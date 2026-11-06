@@ -104,11 +104,11 @@ async function series(symbol, force) {
   const c = cacheGet(), hit = c[symbol];
   if (!force && hit && Date.now() - hit.t < CACHE_MIN * 60000) return hit;
   if (!S.settings.apiKey) throw new Error("請先到「設定」填入 Twelve Data API 金鑰");
-  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=80&apikey=${encodeURIComponent(S.settings.apiKey)}`;
+  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=150&apikey=${encodeURIComponent(S.settings.apiKey)}`;
   const r = await fetch(url);
   const j = await r.json();
   if (j.status === "error" || !j.values) throw new Error(j.message || "抓不到資料");
-  const bars = j.values.map(v => ({ d: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close })).reverse();
+  const bars = j.values.map(v => ({ d: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close, v: +v.volume || 0 })).reverse();
   c[symbol] = { t: Date.now(), bars };
   cacheSet(c);
   return c[symbol];
@@ -222,7 +222,7 @@ VIEWS.dash = async function (force) {
     const trend = a && !a.manual && a.ma20 ? (a.lastClose >= a.ma20 ? `<span class="chip ok">20 日均線上方</span>` : `<span class="chip bad">20 日均線下方</span>`) : "";
     const myRules = S.rules.filter(r => r.symbol === h.symbol || r.for === h.symbol);
     return `<div class="card">
-      <div class="row between"><h2>${esc(h.symbol)} <span class="muted">${esc(h.type)}${h.leverage > 1 ? ` · ${h.leverage} 倍槓桿` : ""}</span></h2>${trend}</div>
+      <div class="row between"><h2>${esc(h.symbol)} <span class="muted">${esc(h.type)}${h.leverage > 1 ? ` · ${h.leverage} 倍槓桿` : ""}</span></h2><div class="row">${trend}${a && !a.manual ? `<button class="btn ghost sm" data-ta="${esc(h.symbol)}">技術分析</button>` : ""}</div></div>
       <div class="row between"><div><div class="big">${price == null ? "—" : fmt(price)}</div><span class="muted">${!a ? "" : a.manual ? "手動價格" : (a.live ? "盤中" : "收盤 " + a.lastCloseDate) + " · " + pct(a.chg)}</span></div>
         <div style="text-align:right"><div class="num" style="color:${pnl >= 0 ? "var(--good)" : "var(--bad)"};font-weight:600">${pnl == null ? "—" : (pnl >= 0 ? "+" : "−") + fmt(Math.abs(pnl))}</div><span class="muted">${pnl == null ? "" : pct(pnl / cost * 100)}</span></div></div>
       <div class="kv"><div><span>股數／均價</span><b>${h.shares}／${fmt(h.avgCost)}</b></div><div><span>回本價</span><b>${fmt(h.avgCost)}</b></div>
@@ -242,6 +242,7 @@ VIEWS.dash = async function (force) {
   const ev = S.events.filter(e => e.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
   if (ev.length) html += `<div class="card"><h2>接下來的事件</h2>${ev.map(e => `<div class="row between"><span>${esc(e.title)}</span><span class="num muted">${esc(e.date)}（${Math.ceil((new Date(e.date) - new Date(today)) / 864e5)} 天）</span></div>`).join("")}</div>`;
   $("#dashBody").innerHTML = html;
+  document.querySelectorAll("[data-ta]").forEach(b => b.onclick = () => { TAV.sym = b.dataset.ta; go("ta"); });
 };
 function ruleRow(r, a) {
   const st = r.done ? { cls: "off", txt: "已完成" } : ruleStatus(r, a);
@@ -355,6 +356,8 @@ VIEWS.calc = function () {
     try { const a = analyze((await series(s)).bars); $("#c-entry").value = a.price.toFixed(2); $("#c-atr").value = a.atr.toFixed(2); calc(); toast(`${s} 現價 ${fmt(a.price)}，ATR ${fmt(a.atr)}`); }
     catch (e) { toast(e.message); }
   };
+  const pre = VIEWS.calc.pre;
+  if (pre) { $("#c-sym").value = pre.sym; $("#c-entry").value = pre.entry.toFixed(2); $("#c-atr").value = pre.atr.toFixed(2); VIEWS.calc.pre = null; }
   calc();
 };
 
@@ -374,7 +377,10 @@ VIEWS.check = function () {
     const n = CHECKS.filter(([k]) => c.items[k]).length, ok = n === CHECKS.length && +c.stop > 0;
     $("#k-res").innerHTML = `<div class="row between"><h2>${n} / ${CHECKS.length} 項</h2>${ok ? `<span class="chip ok">可以下單</span>` : `<span class="chip bad">還不能下單</span>`}</div>
       ${!(+c.stop > 0) ? `<p>還沒填停損價。</p>` : ""}
-      <div class="row"><button class="btn" id="k-j" ${ok ? "" : "disabled"}>建立交易日誌草稿</button><button class="btn ghost" id="k-clear">清除重來</button></div>`;
+      <div class="row"><button class="btn" id="k-j" ${ok ? "" : "disabled"}>建立交易日誌草稿</button><button class="btn ghost" id="k-clear">清除重來</button></div>
+      <div class="row"><button class="btn ghost sm" id="k-health">打開公司體檢</button><button class="btn ghost sm" id="k-ta">打開技術分析</button></div>`;
+    $("#k-health").onclick = () => go("health");
+    $("#k-ta").onclick = () => { if (c.symbol) TAV.sym = c.symbol; go("ta"); };
     $("#k-j").onclick = () => { S.journal.unshift({ id: uid(), date: new Date().toISOString().slice(0, 10), symbol: c.symbol, stop: c.stop, reason: "", source: "", notes: [], exit: {} }); S.check = { symbol: "", stop: "", items: {} }; save(); toast("已建立日誌草稿"); go("journal"); };
     $("#k-clear").onclick = () => { S.check = { symbol: "", stop: "", items: {} }; save(); VIEWS.check(); };
   };
