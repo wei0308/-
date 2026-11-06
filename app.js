@@ -424,7 +424,8 @@ VIEWS.settings = function () {
   <div class="card"><h2>備份與匯入</h2><p>備份不包含 API 金鑰。</p>
     <div class="row"><button class="btn ghost" id="b-copy">複製備份</button><a class="btn ghost" id="b-dl" style="text-decoration:none">下載備份檔</a></div>
     <label>貼上備份資料匯入（會取代目前資料）<textarea id="b-in" placeholder="{ ... }"></textarea></label>
-    <div class="row"><button class="btn" id="b-imp">匯入</button></div></div>
+    <div class="row"><button class="btn" id="b-imp">匯入</button><label class="btn ghost" style="display:inline-block">從檔案匯入<input id="b-file" type="file" accept=".json,application/json" style="display:none"></label></div>
+    <p class="muted">換裝置時：在舊裝置按「下載備份檔」，存到 iCloud 雲碟、Google 雲端硬碟或 LINE 傳給自己，再到新裝置按「從檔案匯入」。</p></div>
   </div>`;
   $("#s-key").addEventListener("change", e => { st.apiKey = e.target.value.trim(); save(); toast("已儲存金鑰"); });
   document.querySelectorAll("[data-s]").forEach(i => i.addEventListener("change", () => { st[i.dataset.s] = +i.value; save(); toast("已儲存"); }));
@@ -445,6 +446,10 @@ VIEWS.settings = function () {
   $("#b-copy").onclick = async () => { try { await navigator.clipboard.writeText(backup()); toast("已複製，可以貼到另一台裝置"); } catch (e) { $("#b-in").value = backup(); toast("無法存取剪貼簿，已放進下方文字框"); } };
   $("#b-dl").href = URL.createObjectURL(new Blob([backup()], { type: "application/json" }));
   $("#b-dl").download = "投資助手備份.json";
+  $("#b-file").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    $("#b-in").value = await f.text(); $("#b-imp").click();
+  };
   $("#b-imp").onclick = () => {
     try {
       const d = JSON.parse($("#b-in").value);
