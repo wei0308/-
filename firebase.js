@@ -20,7 +20,9 @@ if (FB.configured) {
   FB.signOut = () => A.signOut(auth);
   FB.pull = async () => { const s = await F.getDoc(ref()); return s.exists() ? JSON.parse(s.data().json) : null; };
   // 包含 Twelve Data 金鑰：這份文件只有登入的本人讀得到（firestore.rules）
-  FB.push = state => F.setDoc(ref(), { json: JSON.stringify(state), updatedAt: state.updatedAt || Date.now() });
+  // merge：不要蓋掉背景程式寫的推播訂閱和通知紀錄
+  FB.push = state => F.setDoc(ref(), { json: JSON.stringify(state), updatedAt: state.updatedAt || Date.now() }, { merge: true });
+  FB.savePush = sub => F.setDoc(ref(), { push: F.arrayUnion(sub) }, { merge: true });
 
   A.onAuthStateChanged(auth, u => {
     FB.user = u; FB.ready = true;

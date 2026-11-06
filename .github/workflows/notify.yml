@@ -1,0 +1,28 @@
+name: 投資助手通知
+
+on:
+  schedule:
+    - cron: "40 21 * * 1-5"   # 美股收盤後（台灣早上約 5:40）：規則、摘要、財報日期
+    - cron: "0 12 * * *"      # 台灣晚上 8:00：今天和明天的事件提醒
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "close（收盤檢查）或 evening（事件提醒）"
+        default: close
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --prefix notify --omit=dev --no-audit --no-fund
+      - run: node notify/notify.mjs ${{ github.event.inputs.mode || (github.event.schedule == '0 12 * * *' && 'evening' || 'close') }}
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
+          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+          VAPID_PUBLIC: BBoeRYpwC3xkgQIOZjXoOWn0OIZ2wfQ0R_24Cq8FDp9wtPiMilT5MOByI_zR2rwWPEdlSalqmxhiCQ8sCC5aLYI
+          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}

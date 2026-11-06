@@ -8,3 +8,5 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "477259419830",
   appId: "1:477259419830:web:4f1755edb4c421ad681617"
 };
+// 推播的公開金鑰（私鑰只存在 GitHub Secrets 的 VAPID_PRIVATE）
+window.VAPID_PUBLIC = "BBoeRYpwC3xkgQIOZjXoOWn0OIZ2wfQ0R_24Cq8FDp9wtPiMilT5MOByI_zR2rwWPEdlSalqmxhiCQ8sCC5aLYI";

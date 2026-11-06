@@ -270,6 +270,33 @@ function ruleRow(r, a) {
   return `<div class="rule"><div>${esc(r.symbol)} ${KINDS[r.kind]} ${fmt(+r.value)}<small>${esc(r.action)}${ref ? " · " + ref : ""}</small></div><span class="chip ${st.cls}">${st.txt}</span></div>`;
 }
 
+// --- 推播 ---
+const standalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+function pushStatus() {
+  const ios = /iPhone|iPad/.test(navigator.userAgent);
+  if (!("Notification" in window) || !("PushManager" in window))
+    return `<div class="banner warn">${ios && !standalone() ? "iPhone 要先用 Safari「加入主畫面」，再從主畫面打開 App，才能開啟通知（iOS 16.4 以上）。" : "這個瀏覽器不支援推播通知。"}</div>`;
+  const p = Notification.permission;
+  if (p === "granted") return `<span class="chip ok">這台裝置已允許通知</span>`;
+  if (p === "denied") return `<div class="banner warn">通知被封鎖了。iPhone：設定 → 通知 → 投資助手 → 允許通知；電腦：點網址列左邊的鎖頭 → 通知 → 允許。</div>`;
+  return `<span class="chip near">還沒開啟</span>`;
+}
+function b64ToBytes(s) { const p = "=".repeat((4 - s.length % 4) % 4), b = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, c => c.charCodeAt(0)); }
+async function enablePush() {
+  if (!fbOn()) return toast("請先登入 Firebase");
+  if (!("Notification" in window) || !("PushManager" in window)) return toast("這個瀏覽器不支援推播，iPhone 要從主畫面打開 App");
+  try {
+    const p = await Notification.requestPermission();
+    if (p !== "granted") { toast("沒有允許通知"); return VIEWS.settings(); }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(window.VAPID_PUBLIC) }));
+    const j = sub.toJSON();
+    await FB.savePush({ endpoint: j.endpoint, keys: j.keys, ua: navigator.userAgent.slice(0, 120), at: Date.now() });
+    toast("已開啟通知");
+  } catch (e) { toast("開啟通知失敗：" + e.message); }
+  VIEWS.settings();
+}
+
 // --- 圖表 ---
 // 價格圖：最近 60 根 K 線＋5／10／20 日均線＋均價與規則價位線
 function priceChart(a, h, rules) {
@@ -484,6 +511,11 @@ VIEWS.settings = function () {
         <details><summary>改用 Email 和密碼</summary><div class="fields" style="margin-top:8px"><label>Email<input id="f-email" type="email" autocomplete="username"></label><label>密碼（至少 6 個字）<input id="f-pass" type="password" autocomplete="current-password"></label></div>
         <div class="row"><button class="btn ghost" id="f-in">登入</button><button class="btn ghost" id="f-up">第一次使用：建立帳號</button></div></details>`}
   </div>
+  <div class="card"><h2>推播通知</h2>
+    <p>每天美股收盤後（台灣約早上 5:40）和台灣晚上 8 點，背景程式會檢查你的規則和事件，有狀況就推播到這台裝置。需要先登入上面的 Firebase。</p>
+    ${pushStatus()}
+    <label class="row" style="gap:8px"><input type="checkbox" id="p-daily" ${st.dailySummary !== false ? "checked" : ""}>每天收盤後傳一則持倉摘要</label>
+    <div class="row"><button class="btn" id="p-on" ${fbOn() ? "" : "disabled"}>允許這台裝置接收通知</button><button class="btn ghost" id="p-test">測試通知畫面</button></div></div>
   <details class="card"><summary>其他同步方式：GitHub Gist（加密）</summary>
     <p>資料先用你的同步密碼在這台裝置上加密，再存到你自己 GitHub 帳號的 Gist。每台裝置填一次 token 和同一組密碼，之後打開 App 就會自動同步。API 金鑰不會同步。</p>
     <p class="muted">還沒有 token？<a href="https://github.com/settings/tokens/new?scopes=gist&description=%E6%8A%95%E8%B3%87%E5%8A%A9%E6%89%8B%E5%90%8C%E6%AD%A5" target="_blank" rel="noopener">在 GitHub 建立一組只有 gist 權限的 token</a></p>
@@ -533,6 +565,13 @@ VIEWS.settings = function () {
     <p class="muted">換裝置時：在舊裝置按「下載備份檔」，存到 iCloud 雲碟、Google 雲端硬碟或 LINE 傳給自己，再到新裝置按「從檔案匯入」。</p></div>
   </div>`;
   $("#s-key").addEventListener("change", e => { st.apiKey = e.target.value.trim(); save(); toast(fbOn() ? "已儲存金鑰，會同步到你的其他裝置" : "已儲存金鑰"); });
+  $("#p-daily").onchange = e => { st.dailySummary = e.target.checked; save(); };
+  $("#p-on").onclick = enablePush;
+  $("#p-test").onclick = async () => {
+    if (!("Notification" in window) || Notification.permission !== "granted") return toast("請先允許通知");
+    const reg = await navigator.serviceWorker.ready;
+    reg.showNotification("投資助手", { body: "通知畫面測試：收到這則就代表這台裝置可以顯示通知", icon: "icons/icon-192.png" });
+  };
   const fbErr = e => toast(({ "auth/popup-closed-by-user": "登入視窗被關掉了", "auth/invalid-credential": "Email 或密碼不對", "auth/email-already-in-use": "這個 Email 已經註冊過，請直接登入", "auth/weak-password": "密碼至少 6 個字", "auth/unauthorized-domain": "這個網址還沒加進 Firebase 的授權網域" })[e.code] || "登入失敗：" + (e.code || e.message));
   const on = (id, fn) => { const el = $("#" + id); if (el) el.onclick = fn; };
   on("f-google", () => FB.signInGoogle().catch(fbErr));
