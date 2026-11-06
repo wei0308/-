@@ -3,7 +3,7 @@ const TAV = { sym: "", range: 66, show: { ma: true, lv: true, sw: false, vol: tr
 
 VIEWS.ta = async function (symArg) {
   if (typeof symArg === "string") TAV.sym = symArg;
-  const syms = [...new Set([...S.holdings.filter(h => !h.manualPrice).map(h => h.symbol), ...S.rules.map(r => r.symbol)])].filter(Boolean);
+  const syms = [...new Set([...S.holdings.map(h => h.symbol), ...S.rules.map(r => r.symbol)])].filter(Boolean);
   if (!TAV.sym) TAV.sym = syms[0] || "";
   const m = $("#main");
   m.innerHTML = `<h1>技術分析</h1><p class="sub">用固定規則自動判讀 K 線、支撐壓力和指標。這是學習用的判讀，不是買賣建議。</p>
@@ -24,7 +24,11 @@ VIEWS.ta = async function (symArg) {
   renderTA(bars, R);
 };
 
+let taResize;
+window.addEventListener("resize", () => { clearTimeout(taResize); taResize = setTimeout(() => { if (view === "ta" && TAV.last && $("#t-chart")) drawTA(TAV.last.bars, TAV.last.R); }, 150); });
+
 function renderTA(bars, R) {
+  TAV.last = { bars, R };
   const sh = TAV.show;
   const rangeBtn = (n, t) => `<button class="btn sm ${TAV.range === n ? "" : "ghost"}" data-range="${n}">${t}</button>`;
   const tog = (k, t) => `<label class="row" style="gap:6px"><input type="checkbox" data-tog="${k}" ${sh[k] ? "checked" : ""}>${t}</label>`;
@@ -67,30 +71,35 @@ function renderTA(bars, R) {
 
 function drawTA(bars, R) {
   const sh = TAV.show, N = Math.min(TAV.range, bars.length), off = bars.length - N, B = bars.slice(off);
-  const W = 800, ml = 8, mr = 70, mt = 12, ph = 300, vh = sh.vol ? 80 : 0, gap = sh.vol ? 14 : 0, mb = 26, H = mt + ph + gap + vh + mb;
+  // 用容器的實際寬度當畫布寬度，文字就是真實像素大小，桌機和手機都不會放大變形
+  const W = Math.max(300, $("#t-chart").clientWidth), narrow = W < 560;
+  const hasVol = sh.vol && B.some(b => b.v > 0);
+  const ml = 4, mr = 52, mt = 10, ph = narrow ? 230 : 320, vh = hasVol ? (narrow ? 50 : 70) : 0, gap = hasVol ? 10 : 0, mb = 22, H = mt + ph + gap + vh + mb;
   let lo = Math.min(...B.map(b => b.l)), hi = Math.max(...B.map(b => b.h));
   const pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
   const pw = W - ml - mr, bw = pw / N, x = i => ml + bw * i + bw / 2, y = v => mt + (hi - v) / (hi - lo) * ph, cw = Math.max(1.5, bw * 0.62);
   const vmax = Math.max(...B.map(b => b.v || 0)) || 1, vy0 = mt + ph + gap + vh;
-  let s = `<svg viewBox="0 0 ${W} ${H}" class="chart" id="t-svg" role="img" aria-label="${esc(TAV.sym)} K 線圖">`;
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" id="t-svg" role="img" aria-label="${esc(TAV.sym)} K 線圖">`;
   const step = niceStep(hi - lo);
-  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) s += `<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${W - mr + 6}" y="${y(v) + 6}" class="ax">${fmt(v)}</text>`;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) s += `<line x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${W - mr + 6}" y="${y(v) + 4}" class="ax">${fmt(v)}</text>`;
   if (sh.lv) {
     // 只畫離現價最近的 3 個壓力和 2 個支撐，標籤太近就省略文字
     const near = [...R.levels.filter(z => z.role === "壓力").sort((a, b) => a.mid - b.mid).slice(0, 3), ...R.levels.filter(z => z.role === "支撐").sort((a, b) => b.mid - a.mid).slice(0, 2)]
       .filter(z => z.mid >= lo && z.mid <= hi).sort((a, b) => b.mid - a.mid);
     let lastY = -99;
     near.forEach(z => {
-      const c = z.role === "壓力" ? "var(--bad)" : "var(--good)", h = Math.max(4, y(z.lo) - y(z.hi)), ly = y(z.hi) - 6;
-      s += `<rect x="${ml}" y="${y(z.hi) - (h === 4 ? 2 : 0)}" width="${pw}" height="${h}" fill="${c}" opacity=".16"/>`;
-      if (ly - lastY >= 30) { s += `<text x="${ml + 6}" y="${ly}" class="lb" style="fill:${c}">${z.role} ${fmt(z.mid)}</text>`; lastY = ly; }
+      // 區間太寬時只畫中間 ±0.4 個 ATR，避免整片色塊蓋住 K 線
+      const zl = Math.max(z.lo, z.mid - R.atr * 0.4), zh = Math.min(z.hi, z.mid + R.atr * 0.4);
+      const c = z.role === "壓力" ? "var(--bad)" : "var(--good)", h = Math.max(3, y(zl) - y(zh)), ly = y(zh) - 4;
+      s += `<rect x="${ml}" y="${y(zh) - (h === 3 ? 1.5 : 0)}" width="${pw}" height="${h}" fill="${c}" opacity=".16"/>`;
+      if (ly - lastY >= 18) { s += `<text x="${ml + 6}" y="${ly}" class="lb" style="fill:${c}">${z.role} ${fmt(z.mid)}</text>`; lastY = ly; }
     });
     R.gaps.forEach(g => { if (g.i >= off && g.hi >= lo && g.lo <= hi) s += `<rect x="${x(g.i - off) - bw / 2}" y="${y(g.hi)}" width="${W - mr - x(g.i - off) + bw / 2}" height="${Math.max(2, y(g.lo) - y(g.hi))}" fill="var(--bad)" opacity=".12"/>`; });
   }
   B.forEach((b, i) => {
     const col = b.c >= b.o ? "var(--good)" : "var(--bad)";
     s += `<line x1="${x(i)}" x2="${x(i)}" y1="${y(b.h)}" y2="${y(b.l)}" stroke="${col}" stroke-width="1.4"/><rect x="${x(i) - cw / 2}" y="${y(Math.max(b.o, b.c))}" width="${cw}" height="${Math.max(1.2, Math.abs(y(b.o) - y(b.c)))}" fill="${col}" rx="1"/>`;
-    if (sh.vol && b.v) s += `<rect x="${x(i) - cw / 2}" y="${vy0 - b.v / vmax * vh}" width="${cw}" height="${b.v / vmax * vh}" fill="${col}" opacity=".45"/>`;
+    if (hasVol && b.v) s += `<rect x="${x(i) - cw / 2}" y="${vy0 - b.v / vmax * vh}" width="${cw}" height="${b.v / vmax * vh}" fill="${col}" opacity=".45"/>`;
     if (i % Math.ceil(N / 6) === 0) s += `<text x="${x(i)}" y="${H - 6}" class="ax" text-anchor="middle">${b.d.slice(5)}</text>`;
   });
   if (sh.ma) [[5, "#eb6834"], [10, "#6250d6"], [20, "var(--accent)"]].forEach(([n, c]) => {
@@ -99,8 +108,8 @@ function drawTA(bars, R) {
     if (pts) s += `<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2"/>`;
   });
   if (sh.sw) {
-    R.sw.hi.filter(p => p.i >= off).forEach(p => s += `<circle cx="${x(p.i - off)}" cy="${y(p.v) - 8}" r="5" fill="var(--bad)"/>`);
-    R.sw.lo.filter(p => p.i >= off).forEach(p => s += `<circle cx="${x(p.i - off)}" cy="${y(p.v) + 8}" r="5" fill="none" stroke="var(--good)" stroke-width="2.5"/>`);
+    R.sw.hi.filter(p => p.i >= off).forEach(p => s += `<circle cx="${x(p.i - off)}" cy="${y(p.v) - 6}" r="3.5" fill="var(--bad)"/>`);
+    R.sw.lo.filter(p => p.i >= off).forEach(p => s += `<circle cx="${x(p.i - off)}" cy="${y(p.v) + 6}" r="3.5" fill="none" stroke="var(--good)" stroke-width="2"/>`);
   }
   s += `<line id="t-cross" x1="0" x2="0" y1="${mt}" y2="${vy0}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/></svg>`;
   $("#t-chart").innerHTML = s;

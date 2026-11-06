@@ -1,5 +1,5 @@
 // 離線快取：App 本體先用快取，行情 API 一律走網路
-const VERSION = "v5";
+const VERSION = "v6";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "ref.js", "analysis.js", "ta-view.js", "indicators.js", "sync.js", "firebase.js", "firebase-config.js", "manifest.json", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-180.png"];
 
 self.addEventListener("install", e => e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));

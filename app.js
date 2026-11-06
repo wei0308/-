@@ -102,14 +102,30 @@ function cacheSet(c) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(c));
 
 async function series(symbol, force) {
   const c = cacheGet(), hit = c[symbol];
-  if (!force && hit && Date.now() - hit.t < CACHE_MIN * 60000) return hit;
+  // ver 2 起有成交量和 150 天資料；舊版快取直接重抓
+  if (!force && hit && hit.ver === 2 && Date.now() - hit.t < CACHE_MIN * 60000) return hit;
+  if (isTW(symbol)) return twSeries(symbol, c);
   if (!S.settings.apiKey) throw new Error("請先到「設定」填入 Twelve Data API 金鑰");
   const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=150&apikey=${encodeURIComponent(S.settings.apiKey)}`;
   const r = await fetch(url);
   const j = await r.json();
   if (j.status === "error" || !j.values) throw new Error(j.message || "抓不到資料");
   const bars = j.values.map(v => ({ d: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close, v: +v.volume || 0 })).reverse();
-  c[symbol] = { t: Date.now(), bars };
+  c[symbol] = { t: Date.now(), bars, ver: 2 };
+  cacheSet(c);
+  return c[symbol];
+}
+
+// 台股（上市、上櫃、ETF）：代號是 4–6 位數字，可加一個英文字母，例如 0050、2330、00878、00632R
+const isTW = s => /^\d{4,6}[A-Z]?$/.test(s);
+// FinMind 免費台股日 K，不需要金鑰
+async function twSeries(symbol, c) {
+  const start = new Date(Date.now() - 230 * 864e5).toISOString().slice(0, 10);
+  const r = await fetch(`https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=${encodeURIComponent(symbol)}&start_date=${start}`);
+  const j = await r.json();
+  if (j.status !== 200 || !j.data || !j.data.length) throw new Error(j.msg && j.msg !== "success" ? j.msg : "抓不到這支台股的資料");
+  const bars = j.data.filter(d => d.close > 0).map(d => ({ d: d.date, o: d.open, h: d.max, l: d.min, c: d.close, v: d.Trading_Volume }));
+  c[symbol] = { t: Date.now(), bars, ver: 2, tw: true };
   cacheSet(c);
   return c[symbol];
 }
@@ -179,8 +195,12 @@ VIEWS.dash = async function (force) {
   const A = {}, errs = [];
   for (const s of syms) {
     const h = S.holdings.find(x => x.symbol === s);
-    if (h && h.manualPrice) { A[s] = { manual: true, live: false, price: +h.manualPrice, lastClose: +h.manualPrice }; continue; }
-    try { A[s] = analyze((await series(s, force)).bars); } catch (e) { errs.push(`${s}：${e.message}`); }
+    // 先抓即時行情；抓不到才用手動價格
+    try { A[s] = analyze((await series(s, force)).bars); }
+    catch (e) {
+      if (h && h.manualPrice) A[s] = { manual: true, live: false, price: +h.manualPrice, lastClose: +h.manualPrice };
+      else errs.push(`${s}：${e.message}`);
+    }
   }
   const c = cacheGet();
   const times = syms.map(s => c[s]?.t).filter(Boolean);
@@ -491,7 +511,7 @@ VIEWS.settings = function () {
         <label>槓桿倍數<input data-hf="leverage" type="number" inputmode="decimal" value="${h.leverage || 1}"></label>
         <label class="wide">手動價格（抓不到行情時填）<input data-hf="manualPrice" type="number" inputmode="decimal" step="0.01" value="${esc(h.manualPrice || "")}"></label>
       </div></div>`).join("")}
-    <div class="row"><button class="btn ghost sm" id="h-add">新增持倉</button><span class="muted">台股（例如 0050）如果抓不到行情，填手動價格。</span></div></div>
+    <div class="row"><button class="btn ghost sm" id="h-add">新增持倉</button><span class="muted">美股用 Twelve Data，台股（例如 0050、2330）自動用 FinMind，不用金鑰。手動價格只在抓不到行情時才會用。</span></div></div>
   <div class="card"><h2>規則</h2>
     ${S.rules.map(r => `<div class="item" data-rid="${r.id}">
       <div class="row between"><label class="row" style="gap:8px"><input data-rf="done" type="checkbox" ${r.done ? "checked" : ""}>已完成</label><button class="btn danger sm" data-rdel="${r.id}">刪除</button></div>
