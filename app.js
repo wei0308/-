@@ -458,4 +458,6 @@ VIEWS.settings = function () {
 
 // ===== 啟動 =====
 if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
+// 請瀏覽器把資料標成永久保存，空間不足或久未使用時不要自動清掉
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 go("dash");
